@@ -37,7 +37,7 @@ function clamp(value, min, max) {
 }
 
 function formatPercent(value) {
-  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "tracked";
+  return Number.isFinite(value) ? `${Math.round(value)}%` : "tracked";
 }
 
 function formatReset(iso) {
@@ -58,17 +58,24 @@ function projectName(cwd) {
 }
 
 function setMeter(el, value) {
-  const width = Number.isFinite(value) ? clamp(value * 100, 0, 100) : 0;
+  const width = Number.isFinite(value) ? clamp(value, 0, 100) : 0;
   el.style.width = `${width}%`;
-  el.style.background = width >= 90 ? "var(--red)" : width >= 70 ? "var(--amber)" : "";
+  el.style.background = width <= 10 ? "var(--red)" : width <= 30 ? "var(--amber)" : "";
+}
+
+function normalizeUsedPercent(rawValue) {
+  if (!Number.isFinite(rawValue)) return null;
+  return rawValue <= 1 ? rawValue * 100 : rawValue;
 }
 
 function renderLimit(prefix, limit) {
-  const used = limit.usedPercent;
-  els[`${prefix}Used`].textContent = formatPercent(used);
+  const used = normalizeUsedPercent(limit.usedPercent);
+  const remaining = Number.isFinite(used) ? clamp(100 - used, 0, 100) : null;
+  els[`${prefix}Used`].textContent = Number.isFinite(remaining) ? `${Math.round(remaining)}% left` : "tracked";
   els[`${prefix}Reset`].textContent = formatReset(limit.resetsAt);
   els[`${prefix}Confidence`].textContent = limit.source === "codex token_count" ? "measured" : "inferred";
-  setMeter(els[`${prefix}Meter`], used);
+  els[`${prefix}Reset`].title = Number.isFinite(used) ? `${formatPercent(used)} used` : "";
+  setMeter(els[`${prefix}Meter`], remaining);
 }
 
 function renderHeatmap(buckets) {
