@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex Usage Watch</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Codex Usage Watch</h1>
+          <p id="subtitle">Reading local session telemetry</p>
+        </div>
+        <div class="toolbar">
+          <button id="refreshButton" type="button" title="Refresh now" aria-label="Refresh now">
+            <span aria-hidden="true">Refresh</span>
+          </button>
+          <span id="statusDot" class="status-dot" title="Loading"></span>
+        </div>
+      </header>
+
+      <section class="summary-grid" aria-label="Usage windows">
+        <article class="metric-card primary">
+          <div class="metric-head">
+            <span>5-hour window</span>
+            <strong id="primaryConfidence">checking</strong>
+          </div>
+          <div class="meter" aria-hidden="true"><span id="primaryMeter"></span></div>
+          <div class="metric-row">
+            <b id="primaryUsed">--</b>
+            <span id="primaryReset">Reset unknown</span>
+          </div>
+        </article>
+
+        <article class="metric-card secondary">
+          <div class="metric-head">
+            <span>Weekly window</span>
+            <strong id="secondaryConfidence">checking</strong>
+          </div>
+          <div class="meter" aria-hidden="true"><span id="secondaryMeter"></span></div>
+          <div class="metric-row">
+            <b id="secondaryUsed">--</b>
+            <span id="secondaryReset">Reset unknown</span>
+          </div>
+        </article>
+
+        <article class="metric-card">
+          <div class="metric-head">
+            <span>Current state</span>
+            <strong id="activeNow">--</strong>
+          </div>
+          <div class="stat-line">
+            <b id="fiveHourEvents">0</b>
+            <span>events in the rolling 5-hour view</span>
+          </div>
+          <div class="stat-line">
+            <b id="weeklyEvents">0</b>
+            <span>events in the weekly view</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel timeline-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Detected activity</h2>
+              <p>Last 7 days, grouped by hour</p>
+            </div>
+            <span id="scanCount" class="meta-pill">-- files</span>
+          </div>
+          <div id="heatmap" class="heatmap" aria-label="Hourly activity heatmap"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Window history</h2>
+              <p>Local sessions clustered by idle gaps</p>
+            </div>
+          </div>
+          <div id="windowList" class="window-list"></div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Recent sessions</h2>
+            <p>Useful when you need to spot heavy project runs</p>
+          </div>
+          <span id="lastUpdated" class="meta-pill">not loaded</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Last seen</th>
+                <th>Project</th>
+                <th>Events</th>
+                <th>Rate data</th>
+              </tr>
+            </thead>
+            <tbody id="sessionsTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
