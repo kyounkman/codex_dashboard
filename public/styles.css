@@ -80,7 +80,8 @@ th,
 #subtitle,
 .panel-head p,
 .metric-row span,
-.stat-line span {
+.stat-line span,
+.source-line {
   color: var(--muted);
 }
 
@@ -113,6 +114,24 @@ th,
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.notice {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  box-shadow: var(--shadow);
+}
+
+.notice.warning {
+  border-color: #f5c36d;
+  background: var(--amber-soft);
+  color: #6f450d;
 }
 
 .metric-card,
@@ -171,6 +190,12 @@ th,
 .metric-row b {
   font-size: 2.1rem;
   line-height: 1;
+}
+
+.source-line {
+  margin-top: 14px;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .stat-line {

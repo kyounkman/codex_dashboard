@@ -43,6 +43,12 @@ function unixResetToIso(value) {
   return new Date(ms).toISOString();
 }
 
+function sanitizePercent(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.min(100, parsed));
+}
+
 async function fileExists(filePath) {
   try {
     await fs.access(filePath);
@@ -100,6 +106,8 @@ async function parseJsonlFile(file) {
     tokenEvents: 0,
     lastUsage: null,
     lastRateLimits: null,
+    lastRateAt: null,
+    rateObservations: [],
     activity: [],
   };
 
@@ -135,6 +143,10 @@ async function parseJsonlFile(file) {
       session.tokenEvents += 1;
       session.lastUsage = payload.info?.total_token_usage || payload.info?.last_token_usage || session.lastUsage;
       session.lastRateLimits = payload.rate_limits || session.lastRateLimits;
+      if (payload.rate_limits) {
+        session.lastRateAt = at;
+        session.rateObservations.push({ at: at.toISOString(), rateLimits: payload.rate_limits });
+      }
       session.activity.push({ at: at.toISOString(), kind: "usage", weight: 5, sessionId: session.id });
       continue;
     }
@@ -193,7 +205,7 @@ function mergeWindows(activity) {
   }));
 }
 
-function summarizeLimits(rateLimits, activity) {
+function summarizeLimits(observation, activity) {
   const nowMs = Date.now();
   const fiveHourStartMs = nowMs - 5 * 60 * 60 * 1000;
   const weekStartMs = nowMs - 7 * 24 * 60 * 60 * 1000;
@@ -201,13 +213,16 @@ function summarizeLimits(rateLimits, activity) {
   const inFiveHours = activityMs.filter((ms) => ms >= fiveHourStartMs).length;
   const inWeek = activityMs.filter((ms) => ms >= weekStartMs).length;
 
-  const primary = rateLimits?.primary
+  const primary = observation?.primary
     ? {
         source: "codex token_count",
-        usedPercent: rateLimits.primary.used_percent ?? null,
-        windowMinutes: rateLimits.primary.window_minutes ?? 300,
-        resetsAt: unixResetToIso(rateLimits.primary.resets_at),
-        reachedType: rateLimits.rate_limit_reached_type || null,
+        usedPercent: observation.primary.usedPercent,
+        windowMinutes: observation.primary.windowMinutes ?? 300,
+        resetsAt: observation.primary.resetsAt,
+        reachedType: observation.reachedType || null,
+        observedAt: observation.at,
+        sessionId: observation.sessionId,
+        cwd: observation.cwd,
       }
     : {
         source: "inferred local activity",
@@ -217,13 +232,16 @@ function summarizeLimits(rateLimits, activity) {
         reachedType: null,
       };
 
-  const secondary = rateLimits?.secondary
+  const secondary = observation?.secondary
     ? {
         source: "codex token_count",
-        usedPercent: rateLimits.secondary.used_percent ?? null,
-        windowMinutes: rateLimits.secondary.window_minutes ?? 10080,
-        resetsAt: unixResetToIso(rateLimits.secondary.resets_at),
-        reachedType: rateLimits.rate_limit_reached_type || null,
+        usedPercent: observation.secondary.usedPercent,
+        windowMinutes: observation.secondary.windowMinutes ?? 10080,
+        resetsAt: observation.secondary.resetsAt,
+        reachedType: observation.reachedType || null,
+        observedAt: observation.at,
+        sessionId: observation.sessionId,
+        cwd: observation.cwd,
       }
     : {
         source: "inferred local activity",
@@ -241,6 +259,63 @@ function summarizeLimits(rateLimits, activity) {
       weeklyActivityEvents: inWeek,
       activeNow: activityMs.some((ms) => nowMs - ms < 15 * 60 * 1000),
     },
+  };
+}
+
+function buildRateObservation(session, item) {
+  const rateLimits = item.rateLimits || {};
+  return {
+    at: item.at,
+    sessionId: session.id,
+    cwd: session.cwd,
+    originator: session.originator,
+    planType: rateLimits.plan_type || null,
+    reachedType: rateLimits.rate_limit_reached_type || null,
+    primary: rateLimits.primary
+      ? {
+          usedPercent: sanitizePercent(rateLimits.primary.used_percent),
+          windowMinutes: rateLimits.primary.window_minutes ?? 300,
+          resetsAt: unixResetToIso(rateLimits.primary.resets_at),
+        }
+      : null,
+    secondary: rateLimits.secondary
+      ? {
+          usedPercent: sanitizePercent(rateLimits.secondary.used_percent),
+          windowMinutes: rateLimits.secondary.window_minutes ?? 10080,
+          resetsAt: unixResetToIso(rateLimits.secondary.resets_at),
+        }
+      : null,
+  };
+}
+
+function buildRateObservationSummary(observations) {
+  const nowMs = Date.now();
+  const recent = observations.filter((item) => {
+    const ms = Date.parse(item.at);
+    return Number.isFinite(ms) && nowMs - ms <= 15 * 60 * 1000;
+  });
+
+  function rangeFor(items, key) {
+    const values = items
+      .map((item) => item[key]?.usedPercent)
+      .filter((value) => Number.isFinite(value));
+    if (!values.length) return null;
+    return { min: Math.min(...values), max: Math.max(...values) };
+  }
+
+  const primaryRange = rangeFor(recent, "primary");
+  const secondaryRange = rangeFor(recent, "secondary");
+  const conflict = Boolean(
+    (primaryRange && primaryRange.max - primaryRange.min > 0) ||
+      (secondaryRange && secondaryRange.max - secondaryRange.min > 0),
+  );
+
+  return {
+    latest: observations[0] || null,
+    recentCount: recent.length,
+    conflict,
+    primaryRange,
+    secondaryRange,
   };
 }
 
@@ -292,11 +367,13 @@ async function buildSnapshot() {
   const latestSession = sessions
     .filter((session) => session.lastAt)
     .sort((a, b) => b.lastAt - a.lastAt)[0];
-  const latestRateSession = sessions
-    .filter((session) => session.lastRateLimits && session.lastAt)
-    .sort((a, b) => b.lastAt - a.lastAt)[0];
+  const rateObservations = sessions
+    .flatMap((session) => session.rateObservations.map((item) => buildRateObservation(session, item)))
+    .filter((item) => item.primary || item.secondary)
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const rateObservationSummary = buildRateObservationSummary(rateObservations);
   const windows = mergeWindows(activity).slice(-40).reverse();
-  const limits = summarizeLimits(latestRateSession?.lastRateLimits, activity);
+  const limits = summarizeLimits(rateObservations[0], activity);
 
   const snapshot = {
     generatedAt: new Date().toISOString(),
@@ -316,6 +393,8 @@ async function buildSnapshot() {
         }
       : null,
     limits,
+    rateObservationSummary,
+    recentRateObservations: rateObservations.slice(0, 12),
     recentWindows: windows,
     hourlyBuckets: buildHourlyBuckets(activity),
     recentSessions: sessions
@@ -330,6 +409,7 @@ async function buildSnapshot() {
         lastAt: session.lastAt?.toISOString() || null,
         eventCount: session.eventCount,
         tokenEvents: session.tokenEvents,
+        lastRateAt: session.lastRateAt?.toISOString() || null,
         hasRateLimit: Boolean(session.lastRateLimits),
       })),
   };

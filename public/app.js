@@ -2,6 +2,7 @@ const els = {
   subtitle: document.querySelector("#subtitle"),
   refreshButton: document.querySelector("#refreshButton"),
   statusDot: document.querySelector("#statusDot"),
+  rateNotice: document.querySelector("#rateNotice"),
   primaryConfidence: document.querySelector("#primaryConfidence"),
   secondaryConfidence: document.querySelector("#secondaryConfidence"),
   primaryMeter: document.querySelector("#primaryMeter"),
@@ -10,6 +11,8 @@ const els = {
   secondaryUsed: document.querySelector("#secondaryUsed"),
   primaryReset: document.querySelector("#primaryReset"),
   secondaryReset: document.querySelector("#secondaryReset"),
+  primarySource: document.querySelector("#primarySource"),
+  secondarySource: document.querySelector("#secondarySource"),
   activeNow: document.querySelector("#activeNow"),
   fiveHourEvents: document.querySelector("#fiveHourEvents"),
   weeklyEvents: document.querySelector("#weeklyEvents"),
@@ -65,7 +68,7 @@ function setMeter(el, value) {
 
 function normalizeUsedPercent(rawValue) {
   if (!Number.isFinite(rawValue)) return null;
-  return rawValue <= 1 ? rawValue * 100 : rawValue;
+  return clamp(rawValue, 0, 100);
 }
 
 function renderLimit(prefix, limit) {
@@ -73,9 +76,43 @@ function renderLimit(prefix, limit) {
   const remaining = Number.isFinite(used) ? clamp(100 - used, 0, 100) : null;
   els[`${prefix}Used`].textContent = Number.isFinite(remaining) ? `${Math.round(remaining)}% left` : "tracked";
   els[`${prefix}Reset`].textContent = formatReset(limit.resetsAt);
-  els[`${prefix}Confidence`].textContent = limit.source === "codex token_count" ? "measured" : "inferred";
+  els[`${prefix}Confidence`].textContent = limit.source === "codex token_count" ? "observed" : "inferred";
   els[`${prefix}Reset`].title = Number.isFinite(used) ? `${formatPercent(used)} used` : "";
+  els[`${prefix}Source`].textContent = limit.observedAt
+    ? `Observed ${timeFormatter.format(new Date(limit.observedAt))} in ${projectName(limit.cwd)}; ${formatPercent(used)} used.`
+    : "No rate-limit observation found.";
   setMeter(els[`${prefix}Meter`], remaining);
+}
+
+function formatRange(range) {
+  if (!range) return "unknown";
+  if (range.min === range.max) return `${Math.round(range.max)}%`;
+  return `${Math.round(range.min)}-${Math.round(range.max)}%`;
+}
+
+function renderNotice(snapshot) {
+  const summary = snapshot.rateObservationSummary;
+  if (!summary?.latest) {
+    els.rateNotice.hidden = false;
+    els.rateNotice.textContent = "No Codex rate-limit telemetry found. Activity windows are inferred from local session events.";
+    return;
+  }
+
+  const latestProject = projectName(summary.latest.cwd);
+  const latestTime = timeFormatter.format(new Date(summary.latest.at));
+  if (summary.conflict) {
+    els.rateNotice.hidden = false;
+    els.rateNotice.className = "notice warning";
+    els.rateNotice.textContent =
+      `Recent Codex telemetry disagrees across active sessions. ` +
+      `5-hour used range: ${formatRange(summary.primaryRange)}; weekly used range: ${formatRange(summary.secondaryRange)}. ` +
+      `Top cards show the newest observation from ${latestProject} at ${latestTime}.`;
+    return;
+  }
+
+  els.rateNotice.hidden = false;
+  els.rateNotice.className = "notice";
+  els.rateNotice.textContent = `Top cards show the newest Codex rate observation from ${latestProject} at ${latestTime}.`;
 }
 
 function renderHeatmap(buckets) {
@@ -141,6 +178,7 @@ async function loadUsage() {
 
   renderLimit("primary", snapshot.limits.primary);
   renderLimit("secondary", snapshot.limits.secondary);
+  renderNotice(snapshot);
   renderHeatmap(snapshot.hourlyBuckets);
   renderWindows(snapshot.recentWindows);
   renderSessions(snapshot.recentSessions);
